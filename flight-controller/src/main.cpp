@@ -1,4 +1,8 @@
 #include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+#include <MadgwickAHRS.h>
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_task_wdt.h>
@@ -10,6 +14,10 @@ typedef struct DronePacket {
   float yaw;
   int   throttle;  // 0–100
 } DronePacket;
+
+// ── Onboard IMU I2C pins (remapped to avoid motor pin conflict) ──────────────
+#define IMU_SDA  2
+#define IMU_SCL  16
 
 // ── Motor GPIO pins (verify against your ESP32-CAM wiring) ───────────────────
 // ESP32-CAM free GPIOs (camera not used): 12, 13, 14, 15
@@ -55,6 +63,13 @@ PID pidPitch = {0.5f, 0.0f, 0.1f};
 PID pidRoll  = {0.5f, 0.0f, 0.1f};
 PID pidYaw   = {0.3f, 0.0f, 0.05f};
 
+// ── Onboard IMU ───────────────────────────────────────────────────────────────
+Adafruit_MPU6050 droneMpu;
+Madgwick         droneFilter;
+float            dronePitch = 0.0f;
+float            droneRoll  = 0.0f;
+float            droneYaw   = 0.0f;
+
 // ── State ─────────────────────────────────────────────────────────────────────
 volatile DronePacket latestPacket = {0, 0, 0, 0};
 volatile bool        newPacket    = false;
@@ -99,6 +114,18 @@ void setup() {
   ledcAttachPin(MOTOR_RR, CH_RR);
   motorsOff();
 
+  // Onboard IMU
+  Wire.begin(IMU_SDA, IMU_SCL);
+  if (!droneMpu.begin(0x68, &Wire)) {
+    Serial.println("ERROR: Drone MPU6050 not found. Check wiring.");
+    while (1) delay(10);
+  }
+  droneMpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+  droneMpu.setGyroRange(MPU6050_RANGE_500_DEG);
+  droneMpu.setFilterBandwidth(MPU6050_BAND_44_HZ);
+  droneFilter.begin(500);  // 500Hz — tight stabilization loop
+  Serial.println("Onboard IMU initialized.");
+
   // WiFi + ESP-NOW
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
@@ -126,6 +153,17 @@ void loop() {
   float dt = (now - lastLoopMs) / 1000.0f;
   if (dt <= 0.0f) dt = 0.001f;
   lastLoopMs = now;
+
+  // ── Read onboard IMU every iteration (decoupled from ESP-NOW rate) ──────────
+  sensors_event_t da, dg, dtemp;
+  droneMpu.getEvent(&da, &dg, &dtemp);
+  droneFilter.updateIMU(
+    dg.gyro.x * RAD_TO_DEG, dg.gyro.y * RAD_TO_DEG, dg.gyro.z * RAD_TO_DEG,
+    da.acceleration.x, da.acceleration.y, da.acceleration.z
+  );
+  dronePitch = droneFilter.getPitch();
+  droneRoll  = droneFilter.getRoll();
+  droneYaw   = droneFilter.getYaw();
 
   // ── Failsafe ─────────────────────────────────────────────────────────────────
   if (now - lastPacketMs > FAILSAFE_TIMEOUT_MS) {
@@ -156,10 +194,10 @@ void loop() {
     return;
   }
 
-  // ── PID (setpoint = glove angle, actual = 0 for now; add IMU to drone later) ─
-  float outPitch = pidPitch.compute(pkt.pitch, 0.0f, dt);
-  float outRoll  = pidRoll.compute(pkt.roll,   0.0f, dt);
-  float outYaw   = pidYaw.compute(pkt.yaw,     0.0f, dt);
+  // ── PID (closed-loop: setpoint = glove angle, actual = drone IMU angle) ─────
+  float outPitch = pidPitch.compute(pkt.pitch, dronePitch, dt);
+  float outRoll  = pidRoll.compute(pkt.roll,   droneRoll,  dt);
+  float outYaw   = pidYaw.compute(pkt.yaw,     droneYaw,   dt);
 
   // ── Motor mixing (X-frame) ───────────────────────────────────────────────────
   // FL: CCW  FR: CW  RL: CW  RR: CCW
@@ -170,6 +208,7 @@ void loop() {
 
   setMotors(fl, fr, rl, rr);
 
-  Serial.printf("P:%.1f R:%.1f Y:%.1f T:%d | FL:%.0f FR:%.0f RL:%.0f RR:%.0f\n",
-                pkt.pitch, pkt.roll, pkt.yaw, pkt.throttle, fl, fr, rl, rr);
+  Serial.printf("SP P:%.1f R:%.1f Y:%.1f | ACT P:%.1f R:%.1f Y:%.1f | T:%d\n",
+                pkt.pitch, pkt.roll, pkt.yaw,
+                dronePitch, droneRoll, droneYaw, pkt.throttle);
 }
