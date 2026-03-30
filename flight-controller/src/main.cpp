@@ -45,8 +45,8 @@ typedef struct DronePacket {
 // ── PID ───────────────────────────────────────────────────────────────────────
 struct PID {
   float kP, kI, kD;
-  float integral  = 0.0f;
-  float prevError = 0.0f;
+  float integral;
+  float prevError;
 
   float compute(float setpoint, float actual, float dt) {
     float error   = setpoint - actual;
@@ -59,9 +59,9 @@ struct PID {
 };
 
 // Starting gains — tune these during flight testing
-PID pidPitch = {0.5f, 0.0f, 0.1f};
-PID pidRoll  = {0.5f, 0.0f, 0.1f};
-PID pidYaw   = {0.3f, 0.0f, 0.05f};
+PID pidPitch = {0.5f, 0.0f, 0.1f, 0.0f, 0.0f};
+PID pidRoll  = {0.5f, 0.0f, 0.1f, 0.0f, 0.0f};
+PID pidYaw   = {0.3f, 0.0f, 0.05f, 0.0f, 0.0f};
 
 // ── Onboard IMU ───────────────────────────────────────────────────────────────
 Adafruit_MPU6050 droneMpu;
