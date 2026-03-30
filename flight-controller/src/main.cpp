@@ -15,16 +15,16 @@ typedef struct DronePacket {
   int   throttle;  // 0–100
 } DronePacket;
 
-// ── Onboard IMU I2C pins (remapped to avoid motor pin conflict) ──────────────
-#define IMU_SDA  2
-#define IMU_SCL  16
+// ── Onboard IMU I2C pins (remapped to save PSRAM for the Camera) ─────────────
+#define IMU_SDA  14
+#define IMU_SCL  13
 
 // ── Motor GPIO pins (verify against your ESP32-CAM wiring) ───────────────────
-// ESP32-CAM free GPIOs (camera not used): 12, 13, 14, 15
+// ESP32-CAM free GPIOs (Camera and PSRAM safely preserved): 12, 15, 2, 4
 #define MOTOR_FL  12   // Front-Left
-#define MOTOR_FR  13   // Front-Right
-#define MOTOR_RL  14   // Rear-Left
-#define MOTOR_RR  15   // Rear-Right
+#define MOTOR_FR  15   // Front-Right
+#define MOTOR_RL  2    // Rear-Left
+#define MOTOR_RR  4    // Rear-Right (Note: also pulses the onboard Flash LED)
 
 // ledc channels (one per motor)
 #define CH_FL  0
