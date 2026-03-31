@@ -75,6 +75,7 @@ volatile DronePacket latestPacket = {0, 0, 0, 0};
 volatile bool        newPacket    = false;
 unsigned long        lastPacketMs = 0;
 unsigned long        lastLoopMs   = 0;
+unsigned long        lastPrintMs  = 0;
 
 // ── ESP-NOW receive callback ──────────────────────────────────────────────────
 void onDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
@@ -158,7 +159,7 @@ void loop() {
   sensors_event_t da, dg, dtemp;
   droneMpu.getEvent(&da, &dg, &dtemp);
   droneFilter.updateIMU(
-    dg.gyro.x * RAD_TO_DEG, dg.gyro.y * RAD_TO_DEG, dg.gyro.z * RAD_TO_DEG,
+    dg.gyro.x, dg.gyro.y, dg.gyro.z,
     da.acceleration.x, da.acceleration.y, da.acceleration.z
   );
   dronePitch = droneFilter.getPitch();
@@ -208,7 +209,10 @@ void loop() {
 
   setMotors(fl, fr, rl, rr);
 
-  Serial.printf("SP P:%.1f R:%.1f Y:%.1f | ACT P:%.1f R:%.1f Y:%.1f | T:%d\n",
-                pkt.pitch, pkt.roll, pkt.yaw,
-                dronePitch, droneRoll, droneYaw, pkt.throttle);
+  if (now - lastPrintMs >= 100) {
+    lastPrintMs = now;
+    Serial.printf("SP P:%.1f R:%.1f Y:%.1f | ACT P:%.1f R:%.1f Y:%.1f | T:%d\n",
+                  pkt.pitch, pkt.roll, pkt.yaw,
+                  dronePitch, droneRoll, droneYaw, pkt.throttle);
+  }
 }
